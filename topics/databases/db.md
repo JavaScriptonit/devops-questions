@@ -4,7 +4,9 @@
 3. Назовите noSQL БД.
 4. Как разворачивал PostgreSQL без k8s?
 5. Как разворачивал PostgreSQL без k8s и docker?
-6. 
+6. Как была развёрнута Mongo? Это был кластер серверов или на 1ом сервере? 
+7. С какими БД менеджерами работал? 
+8. 
 
 
 ## 1. Для всех типов БД требуется миграция в таком случае или какие-то БД могут самостоятельно изменить табличку и не потерять текущие данные? Если нужно задеплоить новую версию бэкэнда и внести изменения в бд (БД)
@@ -194,3 +196,102 @@ $ psql -U qa_user -d qa_db
 7) **База данных PostgreSQL успешно развернута на сервере Ubuntu без использования Kubernetes и Docker!**
 
 Эти шаги помогут вам установить и настроить PostgreSQL на сервере Ubuntu напрямую, без использования контейнеров или оркестраторов.
+
+## 6. Как была развёрнута Mongo? Это был кластер серверов или на 1ом сервере? (БД)
+
+Для поднятия кластера базы данных MongoDB на нескольких серверах с использованием Docker и настройки репликации с монтированием директорий, вам понадобится следовать следующим шагам:
+
+1. **Создание docker-compose.yaml:**
+
+```yaml
+version: '3'
+
+services:
+  mongodb1:
+    image: mongo
+    container_name: mongodb1
+    ports:
+      - "27017:27017"
+    volumes:
+      - mongodb1_data:/data/db
+    networks:
+      - mongo-cluster
+    environment:
+      MONGO_INITDB_ROOT_USERNAME: admin
+      MONGO_INITDB_ROOT_PASSWORD: password
+
+  mongodb2:
+    image: mongo
+    container_name: mongodb2
+    ports:
+      - "27018:27017"
+    volumes:
+      - mongodb2_data:/data/db
+    networks:
+      - mongo-cluster
+    environment:
+      MONGO_INITDB_ROOT_USERNAME: admin
+      MONGO_INITDB_ROOT_PASSWORD: password
+
+  mongodb3:
+    image: mongo
+    container_name: mongodb3
+    ports:
+      - "27019:27017"
+    volumes:
+      - mongodb3_data:/data/db
+    networks:
+      - mongo-cluster
+    environment:
+      MONGO_INITDB_ROOT_USERNAME: admin
+      MONGO_INITDB_ROOT_PASSWORD: password
+
+volumes:
+  mongodb1_data:
+  mongodb2_data:
+  mongodb3_data:
+
+networks:
+  mongo-cluster:
+```
+
+2. **Репликация кластера MongoDB:**
+   Да, MongoDB поддерживает кластеризацию и репликацию данных. Для настройки кластерной репликации MongoDB, вам нужно будет настроить конфигурацию репликации в каждом узле кластера и указать узлы, которые будут участвовать в репликации.
+
+   - Вы можете настроить репликацию с помощью команды `rs.initiate()` для инициализации репликационного набора и добавления узлов в него.
+   - MongoDB также предоставляет механизм автоматического обнаружения и восстановления для обеспечения высокой доступности и отказоустойчивости.
+
+3. **Создание единого пользователя с правами администратора на каждом узле кластера:**
+```
+$ docker exec -it mongodb1 mongo admin --eval "db.createUser({ user: 'admin', pwd: 'password', roles: [ { role: 'root', db: 'admin' } ] })"
+$ docker exec -it mongodb2 mongo admin --eval "db.createUser({ user: 'admin', pwd: 'password', roles: [ { role: 'root', db: 'admin' } ] })"
+$ docker exec -it mongodb3 mongo admin --eval "db.createUser({ user: 'admin', pwd: 'password', roles: [ { role: 'root', db: 'admin' } ] })"
+```
+
+4. Для настройки репликации данных между узлами кластера MongoDB в Docker, нужно настроить репликацию между узлами. Нужно настроить каждый узел как член репликационного набора и указать основной узел (primary) для записи данных, а также вторичные узлы (secondary) для чтения данных командой `rs.initiate()`:
+
+```bash
+$ docker exec -it mongodb1 mongo
+> rs.initiate()
+> rs.add("mongodb2:27017")
+> rs.add("mongodb3:27017")
+```
+
+Это настроит репликацию между узлами `mongodb1`, `mongodb2` и `mongodb3`, и данные будут автоматически синхронизироваться между ними.
+
+Таким образом, после настройки репликации данные будут одинаковыми в каждой базе MongoDB, и изменения данных будут автоматически синхронизироваться между узлами кластера.
+
+# 7. С какими БД менеджерами работал? (БД)
+
+Существуют различные сервисы для управления базами данных MongoDB и PostgreSQL в облаке. Некоторые из наиболее популярных сервисов:
+
+1. **MongoDB Atlas**:
+   - MongoDB Atlas - это управляемый сервис баз данных MongoDB, предоставляемый компанией MongoDB. Он позволяет развернуть кластер MongoDB в облаке, обеспечивает автоматическое масштабирование, резервное копирование данных, мониторинг и многое другое.
+   - Для использования MongoDB Atlas вам нужно зарегистрироваться на сайте MongoDB Atlas, создать проект, кластер и настроить его параметры через веб-интерфейс.
+
+2. **Amazon RDS (Relational Database Service) для PostgreSQL**:
+   - Amazon RDS - это управляемый сервис реляционных баз данных от Amazon Web Services (AWS), который включает в себя поддержку PostgreSQL, MySQL, Oracle, SQL Server и других.
+   - Для использования Amazon RDS для PostgreSQL вам нужно создать экземпляр базы данных PostgreSQL через консоль управления AWS, указав параметры экземпляра, такие как тип экземпляра, размер хранилища, имя пользователя и пароль.
+
+Для установки и использования MongoDB Atlas и Amazon RDS для PostgreSQL не требуется установка на локальной машине. Вам нужно просто зарегистрироваться на соответствующем сервисе, создать и настроить вашу базу данных через веб-интерфейс.
+
