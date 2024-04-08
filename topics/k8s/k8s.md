@@ -14,7 +14,8 @@
 13. Может быть такая ситуация что "Статус - Deployed", но при этом поды не работают или работают неправильно. Что делать чтобы этого избежать?
 14. Ставим 3 реплики приложения. Заходим, а их 5 в кубере. Как будешь понимать какая реплика к какой версии относится? 
 15. Ставим 3 реплики приложения. Заходим, а их 5 в кубере. Как такое может произойти при деплое?
-16. 
+16. Разворачивал ли в k8s PostgreSQL, Redis?
+17. 
 
 ## 1. Используются ли БД в k8s для имеющихся сервисов? Коннектятся ли БД к каким-то сервисам внутри k8s?
 
@@ -508,4 +509,186 @@ spec:
 - **Использование Readiness и Liveness probes**: Настройте проверки готовности и жизнеспособности для ваших подов, чтобы убедиться, что новые реплики не запускаются до завершения процесса завершения старых.
 
 Принимая эти меры, вы сможете обеспечить стабильное и предсказуемое количество реплик вашего приложения в Kubernetes даже без горизонтального масштабирования.
+
+## 16. Разворачивал ли в k8s PostgreSQL, Redis? (k8s)
+https://habr.com/ru/companies/domclick/articles/649167/ - Разворачиваем PostgreSQL, Redis и RabbitMQ в Kubernetes-кластере
+
+### Руководство по развертыванию базы данных в Kubernetes
+
+1) **Создание Persistent Volume (PV) и Persistent Volume Claim (PVC):**
+
+```yaml
+kind: StorageClass
+apiVersion: storage.k8s.io/v1
+metadata:
+  name: local-storage
+provisioner: kubernetes.io/no-provisioner
+volumeBindingMode: WaitForFirstConsumer
+```
+
+2) **Установка Helm-чарта целевого приложения:**
+
+```bash
+$ helm repo add bitnami https://charts.bitnami.com/bitnami
+$ helm install dev-pg bitnami/postgresql --set primary.persistence.existingClaim=pg-pvc,auth.postgresPassword=pgpass
+```
+
+3) **Проверка работы:**
+
+```bash
+$ kubectl get pvc
+$ kubectl get pod,statefulset
+```
+
+4) **Перед началом работ нужно минимально настроить кластер Kubernetes.**
+   - Версия Kubernetes 1.20+
+   - Одна master-нода и одна worker-нода
+   - Настроенный Ingress-controller
+   - Установлен Helm
+
+5) **Создание ресурса StorageClass и Применение манифеста:**
+
+```yaml
+kind: StorageClass
+apiVersion: storage.k8s.io/v1
+metadata:
+  name: local-storage
+provisioner: kubernetes.io/no-provisioner
+volumeBindingMode: WaitForFirstConsumer
+```
+
+6) **Создание ресурса Persistent Volume:**
+В matchExpressions указываем название ноды, на которой будет монтироваться диск. Посмотреть имя доступных узлов можно с помощью команды: `kubectl get nodes`
+
+```yaml
+apiVersion: v1
+kind: PersistentVolume
+metadata:
+  name: pv-for-pg
+  labels:
+    type: local
+spec:
+  capacity:
+    storage: 4Gi
+  volumeMode: Filesystem
+  accessModes:
+  - ReadWriteOnce
+  persistentVolumeReclaimPolicy: Retain
+  storageClassName: local-storage
+  local:
+    path: /devkube/postgresql
+  nodeAffinity:
+    required:
+      nodeSelectorTerms:
+      - matchExpressions:
+        - key: kubernetes.io/hostname
+          operator: In
+          values:
+          - 457344.cloud4box.ru
+```
+
+7) **Для удобства монтируем диск на мастер-ноде:**
+
+```bash
+$ mkdir -p /devkube/postgresql
+```
+
+8) **Применение манифеста Persistent Volume:**
+
+```bash
+$ kubectl apply -f pv.yaml
+```
+
+9) **Проверка состояния:**
+
+```bash
+$ kubectl get pv
+```
+
+10) **Применение манифеста Persistent Volume Claim:**
+
+```yaml
+kind: PersistentVolumeClaim
+apiVersion: v1
+metadata:
+  name: pg-pvc
+spec:
+  storageClassName: "local-storage"
+  accessModes:
+  - ReadWriteOnce
+  resources:
+    requests:
+      storage: 4Gi
+```
+
+11) **Проверка состояния ресурса PVC:**
+Ресурс PVC в ожидании привязки. 
+
+```bash
+$ kubectl get pvc
+```
+
+12) **Подтягиваем к себе репозиторий Bitnami и Устанавливаем Helm-чарт с Postgres:**
+
+```bash
+$ helm repo add bitnami https://charts.bitnami.com/bitnami
+
+$ helm install dev-pg bitnami/postgresql --set primary.persistence.existingClaim=pg-pvc,auth.postgresPassword=pgpass
+```
+
+13) **Проверка состояния PVC:**
+теперь pod с Postgres будет писать данные в директорию /devkube/postgresql.
+
+```bash
+$ kubectl get pvc
+```
+
+14) **Проверка состояния Pod и StatefulSet:**
+
+```bash
+$ kubectl get pod,statefulset
+```
+
+### База успешно развёрнута, теперь попробуем подключиться к ней и создать пользователя, таблицу и настроить доступы. После установки чарта в консоли будут показаны некоторые способы подключения к БД. Есть два способа:
+
+15.1) **Подключение к БД:**
+
+   - Проброс порта на локальную машину:
+     ```bash
+     $ kubectl port-forward --namespace default svc/dev-pg-postgresql 5432:5432
+     ```
+   - Подключение к БД:
+     ```bash
+     $ psql --host 127.0.0.1 -U postgres -d postgres -p 5432
+     ```
+
+15.2) **Создание поды с psql клиентом:**
+
+```bash
+$ kubectl run dev-pg-postgresql-client --rm --tty -i --restart='Never' --namespace default --image docker.io/bitnami/postgresql:14.2.0-debian-10-r22 --env="PGPASSWORD=$POSTGRES_PASSWORD" \
+      --command -- psql --host dev-pg-postgresql -U postgres -d postgres -p 5432
+```
+
+16) **Создание роли и пароля для пользователя:**
+
+```sql
+CREATE ROLE qa_user WITH LOGIN ENCRYPTED PASSWORD 'qa-pg-pass';
+```
+
+17) **Создание базы данных с владельцем qa_user:**
+
+```sql
+CREATE DATABASE qa_db OWNER qa_user;
+```
+
+18) **Подключение к базе данных с новым пользователем:**
+
+```bash
+$ kubectl run dev-pg-postgresql-client --rm --tty -i --restart='Never' --namespace default --image docker.io/bitnami/postgresql:14.2.0-debian-10-r22 --env="PGPASSWORD=qa-pg-pass"  --command -- psql --host dev-pg-postgresql -U qa_user -d qa_db -p 5432
+```
+
+19) **База успешно развёрнута!**
+    - Адрес БД для приложения: `DATABASE_URI=postgresql://qa_user:qa-pg-pass@dev-pg-postgresql:5432/qa_db`
+
+Это руководство поможет вам успешно развернуть и настроить базу данных в Kubernetes.
 

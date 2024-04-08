@@ -2,6 +2,9 @@
 1. Для всех типов БД требуется миграция в таком случае или какие-то БД могут самостоятельно изменить табличку и не потерять текущие данные?
 2. Реляционные и нереляционные БД. К каким из этих БД будут применимы .sql скрипты? Какие существую UI менеджеры для БД? Какого менеджера можно поднять бесплатно в докер чтобы менеджить эти БД?
 3. Назовите noSQL БД.
+4. Как разворачивал PostgreSQL без k8s?
+5. Как разворачивал PostgreSQL без k8s и docker?
+6. 
 
 
 ## 1. Для всех типов БД требуется миграция в таком случае или какие-то БД могут самостоятельно изменить табличку и не потерять текущие данные? Если нужно задеплоить новую версию бэкэнда и внести изменения в бд (БД)
@@ -65,3 +68,129 @@ docker run -it --rm -v ~/dbeaver:/work -e DISPLAY=$DISPLAY -v /tmp/.X11-unix:/tm
 - Redis
 - etcd
 - ZooKeeper
+
+## 4. Как разворачивал PostgreSQL без k8s? (БД)
+
+Для развертывания PostgreSQL без Kubernetes, но с использованием Docker на сервере Ubuntu, вам потребуется следующий набор шагов:
+
+1) **Установка Docker на сервер Ubuntu:**
+
+```bash
+$ sudo apt update
+$ sudo apt install docker.io
+$ sudo systemctl start docker
+$ sudo systemctl enable docker
+```
+
+2) **Создание каталога для хранения данных PostgreSQL:**
+
+```bash
+$ mkdir -p /opt/postgresql/data
+```
+
+3) **Создание и настройка файла конфигурации PostgreSQL:**
+
+```bash
+$ touch /opt/postgresql/postgresql.conf
+```
+
+Пример содержимого `postgresql.conf`:
+
+```plaintext
+listen_addresses = 'localhost'
+port = 5432
+max_connections = 100
+```
+
+4) **Запуск контейнера PostgreSQL:**
+
+```bash
+$ sudo docker run -d --name postgresql-container -v /opt/postgresql/data:/var/lib/postgresql/data -v /opt/postgresql/postgresql.conf:/etc/postgresql/postgresql.conf -e POSTGRES_PASSWORD=mysecretpassword -p 5432:5432 postgres
+```
+
+5) **Подключение к контейнеру PostgreSQL:**
+
+```bash
+$ sudo docker exec -it postgresql-container psql -U postgres
+```
+
+6) **Создание роли и базы данных:**
+
+```sql
+CREATE ROLE qa_user WITH LOGIN ENCRYPTED PASSWORD 'qa-pg-pass';
+CREATE DATABASE qa_db OWNER qa_user;
+```
+
+7) **Подключение к базе данных с новым пользователем:**
+
+```bash
+$ sudo docker exec -it postgresql-container psql -U qa_user -d qa_db
+```
+
+8) **База данных PostgreSQL успешно развернута на сервере Ubuntu с использованием Docker!**
+
+Эти шаги помогут вам развернуть PostgreSQL на сервере Ubuntu при помощи Docker.
+
+## 5. Как разворачивал PostgreSQL без k8s и docker? (БД)
+
+Для развертывания PostgreSQL без использования Kubernetes и Docker на сервере Ubuntu, вам потребуется установить PostgreSQL напрямую на сервер. Вот инструкция с шагами и командами:
+
+1) **Установка PostgreSQL на сервер Ubuntu:**
+
+```bash
+$ sudo apt update
+$ sudo apt install postgresql postgresql-contrib
+```
+
+2) **Настройка файла конфигурации PostgreSQL:**
+
+```bash
+$ sudo nano /etc/postgresql/<version>/main/postgresql.conf
+```
+
+Пример настроек в `postgresql.conf`:
+
+```plaintext
+listen_addresses = 'localhost'
+port = 5432
+max_connections = 100
+```
+
+3) **Настройка файлов pg_hba.conf для разрешения подключений:**
+
+```bash
+$ sudo nano /etc/postgresql/<version>/main/pg_hba.conf
+```
+
+Пример настройки в `pg_hba.conf`:
+
+```plaintext
+host    all             all             127.0.0.1/32            md5
+```
+
+4) **Перезапуск PostgreSQL для применения изменений:**
+
+```bash
+$ sudo systemctl restart postgresql
+```
+
+5) **Подключение к PostgreSQL и создание роли и базы данных:**
+
+```bash
+$ sudo -u postgres psql
+```
+
+```sql
+CREATE ROLE qa_user WITH LOGIN ENCRYPTED PASSWORD 'qa-pg-pass';
+CREATE DATABASE qa_db OWNER qa_user;
+```
+
+6) **Подключение к базе данных с новым пользователем:**
+
+```bash
+$ psql -U qa_user -d qa_db
+```
+
+7) **База данных PostgreSQL успешно развернута на сервере Ubuntu без использования Kubernetes и Docker!**
+
+Эти шаги помогут вам установить и настроить PostgreSQL на сервере Ubuntu напрямую, без использования контейнеров или оркестраторов.
