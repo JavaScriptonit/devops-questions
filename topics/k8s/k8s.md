@@ -15,7 +15,11 @@
 14. Ставим 3 реплики приложения. Заходим, а их 5 в кубере. Как будешь понимать какая реплика к какой версии относится? 
 15. Ставим 3 реплики приложения. Заходим, а их 5 в кубере. Как такое может произойти при деплое?
 16. Разворачивал ли в k8s PostgreSQL, Redis?
-17. 
+17. Что еще делал в k8s? Приведи примеры.
+18. Расскажи подробно работу деплоя в k8s кластер при помощи Арго и гитлаба
+19. Где запускаются джобы lint/prettier?
+20. Может ли на сервере выполняться несколько джобов сразу?
+21. 
 
 ## 1. Используются ли БД в k8s для имеющихся сервисов? Коннектятся ли БД к каким-то сервисам внутри k8s?
 
@@ -691,4 +695,238 @@ $ kubectl run dev-pg-postgresql-client --rm --tty -i --restart='Never' --namespa
     - Адрес БД для приложения: `DATABASE_URI=postgresql://qa_user:qa-pg-pass@dev-pg-postgresql:5432/qa_db`
 
 Это руководство поможет вам успешно развернуть и настроить базу данных в Kubernetes.
+
+## 17. Что еще делал в k8s? Приведи примеры. (k8s)
+
+В качестве Senior DevOps Engineer работал с Kubernetes, я выполнял следующие задачи и могу похвастаться следующими достижениями:
+
+1) **Горизонтальное масштабирование приложения:**
+
+- **Задача:** Настройка автоматического горизонтального масштабирования для приложения в Kubernetes.
+- **Шаги:**
+  - Создание горизонтального масштабирования для деплоя приложения:
+
+```bash
+$ kubectl autoscale deployment <deployment-name> --cpu-percent=70 --min=3 --max=10
+```
+
+- **Конфигурационный файл для автомасштабирования:**
+
+```yaml
+apiVersion: autoscaling/v1
+kind: HorizontalPodAutoscaler
+metadata:
+  name: <hpa-name>
+spec:
+  scaleTargetRef:
+    apiVersion: apps/v1
+    kind: Deployment
+    name: <deployment-name>
+  minReplicas: 3
+  maxReplicas: 10
+  targetCPUUtilizationPercentage: 70
+```
+
+2) **Управление секретами и конфигурациями:**
+
+- **Задача:** Безопасное хранение и использование секретов и конфигураций в Kubernetes.
+- **Шаги:**
+  - Создание секрета для базы данных:
+
+```bash
+$ kubectl create secret generic db-credentials --from-literal=username=db_user --from-literal=password=db_password
+```
+
+- **Использование секрета в Pod:**
+
+```yaml
+apiVersion: v1
+kind: Pod
+metadata:
+  name: mypod
+spec:
+  containers:
+    - name: mycontainer
+      image: nginx
+      env:
+        - name: DB_USERNAME
+          valueFrom:
+            secretKeyRef:
+              name: db-credentials
+              key: username
+        - name: DB_PASSWORD
+          valueFrom:
+            secretKeyRef:
+              name: db-credentials
+              key: password
+```
+
+3) **Настройка мониторинга и логирования:**
+
+- **Задача:** Настройка мониторинга и сбора логов для кластера Kubernetes.
+- **Шаги:**
+  - Установка Prometheus и Grafana для мониторинга:
+
+```bash
+$ kubectl apply -f https://raw.githubusercontent.com/kubernetes/ingress-nginx/main/deploy/grafana-prometheus.yaml
+```
+
+- **Настройка сбора логов с помощью Fluentd:**
+
+```yaml
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: fluentd-config
+data:
+  fluent.conf: |
+    <source>
+      @type tail
+      path /var/log/containers/*.log
+      pos_file /var/log/fluentd-containers.log.pos
+      tag kubernetes.*
+      read_from_head true
+      format json
+    </source>
+
+    <match kubernetes.**>
+      @type elasticsearch
+      host elasticsearch
+      port 9200
+      logstash_format true
+      logstash_prefix kubernetes
+      include_tag_key true
+      tag_key @log_name
+      flush_interval 5s
+    </match>
+```
+
+Эти примеры сложных задач в Kubernetes для Senior DevOps Engineers позволяют продемонстрировать опыт работы с расширенными функциями и возможностями платформы.
+
+## 18. Расскажи подробно работу деплоя в k8s кластер при помощи Арго и гитлаба. (k8s)
+
+**Деплой в Kubernetes кластер при помощи Argo и GitLab:**
+
+**Шаги для настройки:**
+
+1. **Установка Argo CD:**
+
+```bash
+kubectl create namespace argocd
+kubectl apply -n argocd -f https://raw.githubusercontent.com/argoproj/argo-cd/stable/manifests/install.yaml
+```
+
+2. **Создание GitLab CI/CD pipeline:**
+
+Создайте файл `.gitlab-ci.yml` в корне вашего репозитория `portal-ui`:
+
+```yaml
+stages:
+  - deploy
+
+deploy:
+  stage: deploy
+  image: argoproj/argocd-cli:v2.1.2
+  script:
+    - argocd login <argo-cd-server-url> --username admin --password <argo-cd-initial-password> --insecure
+    - argocd app sync portal-ui --sync-option Prune=true
+```
+
+3. **Создание Argo CD приложения:**
+
+Создайте файл `argo-application.yaml`:
+
+```yaml
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: portal-ui
+spec:
+  destination:
+    server: 'https://kubernetes.default.svc'
+    namespace: default
+  project: default
+  source:
+    repoURL: 'https://gitlab.com/your-repo/portal-ui'
+    path: .
+    targetRevision: HEAD
+```
+
+4. **Изменение настроек GitLab:**
+
+Настройте переменные окружения в GitLab для хранения данных для доступа к Argo CD.
+
+**Что делает Argo и пример деплоя в Kubernetes кластер без Argo:**
+
+Argo - это инструмент для управления непрерывной поставкой и развертыванием приложений в Kubernetes. Он позволяет автоматизировать процессы CI/CD и управлять развертыванием приложений в кластере.
+
+Пример деплоя в Kubernetes кластер без Argo:
+- Ручное создание манифестов Kubernetes (Deployment, Service, Ingress и т. д.).
+- Применение манифестов с помощью `kubectl apply -f`.
+
+Отличия при использовании Argo:
+- Автоматизация процесса деплоя приложений в Kubernetes.
+- Возможность управления развертыванием приложений из Git-репозитория.
+- Визуализация состояния и истории развертываний.
+- Встроенные инструменты для управления версиями приложений.
+
+Использование Argo упрощает и автоматизирует процесс развертывания приложений в Kubernetes, делая его более надежным и эффективным.
+
+## 19. Где запускаются джобы lint/prettier? (k8s)
+
+Для запуска джобов lint/prettier в Kubernetes с использованием GitLab Runner и выполнения проверок кода в контейнерах в Kubernetes, вам нужно настроить GitLab Runner в Kubernetes и определить задачи в `.gitlab-ci.yml` для запуска контейнеров с инструментами для проверки кода.
+
+Вот пример шагов и команд для поднятия GitLab Runner в Kubernetes и выполнения джобов в контейнерах:
+
+1. **Шаги:**
+
+   - **Шаг 1: Установка GitLab Runner в Kubernetes:**
+     - Установите GitLab Runner в Kubernetes с помощью Helm Chart или манифестов Kubernetes.
+     - Настройте GitLab Runner для регистрации в вашем GitLab проекте.
+
+   - **Шаг 2: Определение задач в `.gitlab-ci.yml`:**
+     - В вашем `.gitlab-ci.yml` определите задачи для проверки кода, например, lint и prettier.
+     - Для каждой задачи определите образ контейнера с необходимыми инструментами для проверки кода.
+
+2. **Пример `.gitlab-ci.yml`:**
+
+```yaml
+lint:
+  stage: test
+  image: node:14
+  script:
+    - npm install eslint --save-dev
+    - npm run lint
+
+prettier:
+  stage: test
+  image: node:14
+  script:
+    - npm install prettier --save-dev
+    - npm run prettier
+```
+
+3. **Пример команд для установки GitLab Runner в Kubernetes:**
+
+```bash
+# Добавление репозитория Helm Chart GitLab Runner
+helm repo add gitlab https://charts.gitlab.io
+
+# Установка GitLab Runner с помощью Helm Chart
+helm install gitlab-runner gitlab/gitlab-runner -n gitlab --set gitlabUrl=<YOUR_GITLAB_URL> --set runnerRegistrationToken=<YOUR_RUNNER_TOKEN>
+```
+
+После установки GitLab Runner в Kubernetes и определения задач в `.gitlab-ci.yml`, GitLab Runner будет запускать контейнеры с инструментами lint и prettier для проверки кода в рамках CI/CD pipeline в Kubernetes кластере.
+
+## 20. Может ли на сервере выполняться несколько джобов сразу? (k8s)
+
+1) Да, на сервере может выполняться несколько джобов одновременно при одном поднятом GitLab Runner, если это настроено в конфигурации GitLab Runner. GitLab Runner может выполнять параллельно несколько джобов в зависимости от настроек concurrency в конфигурации GitLab Runner.
+
+2) Утилизация контейнеров на сервере, где поднят GitLab Runner, зависит от настроек самого GitLab Runner и конфигурации джобов в `.gitlab-ci.yml`. Когда GitLab Runner выполняет джобы, он создает контейнеры для выполнения задач из определенных образов. После завершения выполнения джобы контейнеры могут быть остановлены или удалены в зависимости от настроек.
+
+3) Отличия от запуска джобов на GitLab Runner, поднятом на сервере, и на GitLab Runner, поднятом в Kubernetes кластере, включают следующее:
+   - **Масштабируемость:** В Kubernetes можно легко масштабировать количество GitLab Runner экземпляров в зависимости от нагрузки, что обеспечивает более высокую параллельность выполнения джобов.
+   - **Изоляция:** В Kubernetes контейнеры с джобами могут быть запущены в изолированных подах, обеспечивая лучшую изоляцию и безопасность выполнения задач.
+   - **Управление ресурсами:** В Kubernetes можно лучше управлять ресурсами, выделенными для выполнения джобов, такими как CPU и память, благодаря возможностям Kubernetes по управлению ресурсами контейнеров.
+   - **Управление жизненным циклом:** Kubernetes обеспечивает удобное управление жизненным циклом контейнеров, их масштабированием и обновлением, что может быть удобнее для развертывания и управления GitLab Runner.
 
